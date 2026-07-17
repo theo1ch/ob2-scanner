@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>On Broadway II Check-in</title>
+  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+
+  <style>
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      padding: 18px;
+      background: #f3f3f3;
+      color: #161616;
+      font-family: Arial, sans-serif;
+    }
+
+    .app { width: 100%; max-width: 560px; margin: 0 auto; }
+
+    h1 { margin: 8px 0 4px; text-align: center; font-size: 28px; }
+    .subtitle { margin: 0 0 18px; text-align: center; color: #666; }
+
+    .panel {
+      padding: 18px;
+      background: #fff;
+      border-radius: 18px;
+      box-shadow: 0 3px 16px rgba(0, 0, 0, 0.10);
+    }
+
+    .scanner-box { text-align: center; }
+
+    .video-wrap {
+      position: relative;
+      width: 100%;
+      border-radius: 16px;
+      overflow: hidden;
+      background: #000;
+    }
+
+    #video {
+      display: block;
+      width: 100%;
+      max-height: 60vh;
+      object-fit: cover;
+    }
+
+    .video-frame {
+      position: absolute;
+      top: 12%;
+      left: 12%;
+      right: 12%;
+      bottom: 12%;
+      border: 3px solid rgba(255, 255, 255, 0.85);
+      border-radius: 14px;
+      pointer-events: none;
+    }
+
+    .scanner-box p {
+      margin: 12px 0 0;
+      color: #555;
+      line-height: 1.45;
+    }
+
+    .camera-button {
+      display: block;
+      width: 100%;
+      min-height: 58px;
+      margin-top: 14px;
+      padding: 15px 18px;
+      border: 0;
+      border-radius: 12px;
+      background: #111;
+      color: #fff;
+      font-size: 20px;
+      font-weight: bold;
+      cursor: pointer;
+    }
+
+    #canvas { display: none; }
+
+    .health { margin-top: 12px; color: #666; font-size: 13px; text-align: center; }
+
+    .loading {
+      display: none;
+      padding: 34px 12px;
+      text-align: center;
+      font-size: 20px;
+      font-weight: bold;
+    }
+
+    .spinner {
+      width: 48px; height: 48px; margin: 0 auto 16px;
+      border: 5px solid #ddd; border-top-color: #111; border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .result { display: none; padding: 26px 18px; border-radius: 16px; text-align: center; }
+    .result.valid { background: #e5f8ea; border: 4px solid #17823b; }
+    .result.used { background: #ffe6e6; border: 4px solid #b31313; }
+    .result.invalid { background: #f1f1f1; border: 4px solid #303030; }
+    .result.checked-in { background: #dff5ff; border: 4px solid #087ba5; }
+    .result.error { background: #fff0f0; border: 4px solid #a00000; }
+
+    .status-icon { margin-bottom: 8px; font-size: 58px; line-height: 1; }
+    .result h2 { margin: 0 0 12px; font-size: 31px; }
+    .customer-name { margin: 10px 0; font-size: 25px; font-weight: bold; }
+    .ticket-details { margin: 8px 0; font-size: 18px; }
+    .ticket-id { margin: 12px 0; font-family: monospace; font-size: 15px; overflow-wrap: anywhere; }
+    .error-message { color: #900; font-weight: bold; line-height: 1.45; }
+
+    button {
+      width: 100%; min-height: 56px; margin-top: 13px; padding: 12px 16px;
+      border: 0; border-radius: 12px; background: #111; color: white;
+      font-size: 18px; font-weight: bold; cursor: pointer;
+    }
+    button:disabled { opacity: 0.55; cursor: wait; }
+
+    .admit-button { background: #17823b; font-size: 22px; }
+    .scan-next-button { background: #087ba5; }
+
+    .manual { margin-top: 18px; padding-top: 16px; border-top: 1px solid #ddd; }
+    .manual label { display: block; margin-bottom: 8px; font-weight: bold; }
+    .manual-row { display: flex; gap: 8px; }
+    .manual input {
+      width: 100%; min-width: 0; padding: 14px; border: 1px solid #999;
+      border-radius: 10px; font-size: 16px; text-transform: uppercase;
+    }
+    .manual button { width: auto; min-width: 105px; margin: 0; font-size: 16px; }
+  </style>
+</head>
+
+<body>
+  <main class="app">
+    <h1>On Broadway II</h1>
+    <p class="subtitle">Ticket check-in</p>
+
+    <section class="panel">
+      <div id="scannerBox" class="scanner-box">
+        <div class="video-wrap">
+          <video id="video" playsinline muted></video>
+          <div class="video-frame"></div>
+        </div>
+        <p id="scanHint">Tap "Start Scanning," then hold the QR code inside the frame. It scans automatically — no need to take a photo.</p>
+        <button id="startButton" class="camera-button" type="button">Start Scanning</button>
+        <div id="health" class="health">Connecting to ticket register…</div>
+      </div>
+
+      <canvas id="canvas"></canvas>
+
+      <div id="loading" class="loading">
+        <div class="spinner"></div>
+        <span id="loadingText">Checking ticket…</span>
+      </div>
+
+      <div id="result" class="result">
+        <div id="statusIcon" class="status-icon"></div>
+        <h2 id="resultTitle"></h2>
+        <div id="customerName" class="customer-name"></div>
+        <div id="ticketDetails" class="ticket-details"></div>
+        <div id="checkedInDetails" class="ticket-details"></div>
+        <div id="ticketId" class="ticket-id"></div>
+        <div id="errorMessage" class="error-message"></div>
+
+        <button id="admitButton" class="admit-button" type="button" onclick="admitGuest()">
+          Admit Guest
+        </button>
+
+        <button class="scan-next-button" type="button" onclick="scanNextTicket()">
+          Scan Next Ticket
+        </button>
+      </div>
+
+      <div class="manual">
+        <label for="manualTicketId">Manual backup: enter a ticket ID</label>
+        <div class="manual-row">
+          <input id="manualTicketId" type="text" placeholder="OB2-XXXXXXXXXXXX" autocomplete="off" autocapitalize="characters">
+          <button type="button" onclick="manualLookup()">Check</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    // ⚠️ EDIT THIS: paste your Apps Script Web App URL here.
+    const SCRIPT_URL = 'PASTE_YOUR_WEB_APP_URL_HERE';
+
+    const SERVER_TIMEOUT_MS = 20000;
+    const MAX_CANVAS_SIDE = 900;
+    const SCAN_INTERVAL_MS = 150;
+
+    let currentTicketId = '';
+    let processing = false;
+    let mediaStream = null;
+    let scanRafId = null;
+    let lastScanAttempt = 0;
+
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const canvasContext = canvas.getContext('2d', { willReadFrequently: true });
+
+    window.addEventListener('load', function () {
+      document.getElementById('startButton').addEventListener('click', startScanning);
+
+      if (!SCRIPT_URL || SCRIPT_URL.includes('PASTE_YOUR')) {
+        document.getElementById('health').textContent =
+          'SCRIPT_URL is not set yet — edit index.html and paste your Web App URL in.';
+        return;
+      }
+
+      checkBackendHealth();
+    });
+
+    async function checkBackendHealth() {
+      try {
+        const result = await callServer('scannerHealthCheck');
+
+        if (!result || !result.ok) {
+          throw new Error(result && result.message ? result.message : 'The scanner backend is not ready.');
+        }
+
+        document.getElementById('health').textContent =
+          `Ready — ${result.registeredTickets} tickets registered`;
+      } catch (error) {
+        document.getElementById('health').textContent = error && error.message ? error.message : String(error);
+      }
+    }
+
+    async function startScanning() {
+      if (processing) return;
+
+      if (!window.isSecureContext) {
+        showError('This page needs to be opened over HTTPS for the camera to work.');
+        return;
+      }
+
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        showError(
+          'Camera access is not available here. If you opened this link inside an app (Gmail, WhatsApp, Instagram, etc.), open it in Safari or Chrome directly instead — in-app browsers usually block the camera.'
+        );
+        return;
+      }
+
+      try {
+        mediaStream = await requestCameraStream_();
+        video.srcObject = mediaStream;
+        await video.play();
+
+        document.getElementById('startButton').style.display = 'none';
+        document.getElementById('scanHint').textContent = 'Scanning… hold the QR code inside the frame.';
+
+        lastScanAttempt = 0;
+        scanRafId = requestAnimationFrame(scanLoop);
+      } catch (error) {
+        showError(describeCameraError_(error));
+      }
+    }
+
+    async function requestCameraStream_() {
+      try {
+        return await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: 'environment' } },
+          audio: false
+        });
+      } catch (firstError) {
+        if (firstError && firstError.name === 'OverconstrainedError') {
+          return await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        }
+        throw firstError;
+      }
+    }
+
+    function describeCameraError_(error) {
+      const name = error && error.name ? error.name : 'UnknownError';
+
+      if (name === 'NotAllowedError' || name === 'PermissionDeniedError') {
+        return 'Camera permission was blocked for this page. Open your browser\'s site settings (tap the padlock or "aA" icon in the address bar) and set Camera to Allow, then reload.';
+      }
+
+      if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
+        return 'No camera could be found on this device.';
+      }
+
+      if (name === 'NotReadableError' || name === 'TrackStartError') {
+        return 'The camera is already being used by another app or browser tab. Close it and try again.';
+      }
+
+      if (name === 'SecurityError') {
+        return 'The browser blocked camera access on this page.';
+      }
+
+      return `Could not access the camera (${name}). Try reloading, or open this link directly in Safari or Chrome instead of an in-app browser.`;
+    }
+
+    function stopScanning() {
+      if (scanRafId) {
+        cancelAnimationFrame(scanRafId);
+        scanRafId = null;
+      }
+
+      if (mediaStream) {
+        mediaStream.getTracks().forEach(track => track.stop());
+        mediaStream = null;
+      }
+
+      video.srcObject = null;
+    }
+
+    function scanLoop(timestamp) {
+      if (!mediaStream) return;
+
+      if (
+        video.readyState === video.HAVE_ENOUGH_DATA &&
+        timestamp - lastScanAttempt > SCAN_INTERVAL_MS
+      ) {
+        lastScanAttempt = timestamp;
+        const decoded = decodeCurrentFrame();
+
+        if (decoded) {
+          handleDecodedText(decoded);
+          return;
+        }
+      }
+
+      scanRafId = requestAnimationFrame(scanLoop);
+    }
+
+    function decodeCurrentFrame() {
+      const videoWidth = video.videoWidth;
+      const videoHeight = video.videoHeight;
+
+      if (!videoWidth || !videoHeight) return '';
+
+      const scale = Math.min(1, MAX_CANVAS_SIDE / Math.max(videoWidth, videoHeight));
+      const width = Math.max(1, Math.round(videoWidth * scale));
+      const height = Math.max(1, Math.round(videoHeight * scale));
+
+      canvas.width = width;
+      canvas.height = height;
+      canvasContext.drawImage(video, 0, 0, width, height);
+
+      const imageData = canvasContext.getImageData(0, 0, width, height);
+      const result = jsQR(imageData.data, width, height, { inversionAttempts: 'attemptBoth' });
+
+      return result && result.data ? String(result.data).trim() : '';
+    }
+
+    async function handleDecodedText(rawText) {
+      if (processing) return;
+      processing = true;
+
+      stopScanning();
+      currentTicketId = normalizeTicketText(rawText);
+
+      if (navigator.vibrate) navigator.vibrate(60);
+
+      if (!currentTicketId) {
+        processing = false;
+        showError('That QR code did not look like a ticket. Try scanning again.');
+        return;
+      }
+
+      showLoading('Checking ticket…');
+
+      try {
+        const result = await callServer('lookupTicket', currentTicketId);
+        showLookupResult(result);
+      } catch (error) {
+        showError(error && error.message ? error.message : String(error));
+      } finally {
+        processing = false;
+      }
+    }
+
+    function normalizeTicketText(value) {
+      const raw = String(value || '').trim();
+      const match = raw.toUpperCase().match(/OB2-[A-Z0-9]+/);
+      return match ? match[0] : raw;
+    }
+
+    async function manualLookup() {
+      const input = document.getElementById('manualTicketId');
+      const ticketId = String(input.value || '').trim();
+
+      if (!ticketId || processing) return;
+
+      processing = true;
+      currentTicketId = ticketId;
+      stopScanning();
+      showLoading('Checking ticket…');
+
+      try {
+        const result = await callServer('lookupTicket', ticketId);
+        showLookupResult(result);
+      } catch (error) {
+        showError(error && error.message ? error.message : String(error));
+      } finally {
+        processing = false;
+      }
+    }
+
+    function showLookupResult(result) {
+      resetResult();
+      hideElement('loading');
+      hideElement('scannerBox');
+      showElement('result');
+
+      if (!result || !result.ok) {
+        showError(result && result.message ? result.message : 'The ticket could not be checked.');
+        return;
+      }
+
+      if (!result.found) {
+        setResultClass('invalid');
+        setText('statusIcon', '✖');
+        setText('resultTitle', 'INVALID TICKET');
+        setText('ticketId', result.ticketId || currentTicketId);
+        hideElement('admitButton');
+        vibrateFailure();
+        return;
+      }
+
+      currentTicketId = result.ticketId;
+      setText('customerName', result.customerName);
+      setText('ticketDetails', `Ticket ${result.ticketNumber} of ${result.totalTickets}`);
+      setText('ticketId', result.ticketId);
+
+      if (result.status === 'VALID') {
+        setResultClass('valid');
+        setText('statusIcon', '✓');
+        setText('resultTitle', 'VALID TICKET');
+        showElement('admitButton');
+        vibrateSuccess();
+        return;
+      }
+
+      if (result.status === 'USED') {
+        setResultClass('used');
+        setText('statusIcon', '!');
+        setText('resultTitle', 'ALREADY USED');
+        setText('checkedInDetails', result.checkedInAt ? `Checked in: ${result.checkedInAt}` : '');
+        hideElement('admitButton');
+        vibrateFailure();
+        return;
+      }
+
+      setResultClass('invalid');
+      setText('statusIcon', '✖');
+      setText('resultTitle', result.status || 'INVALID TICKET');
+      hideElement('admitButton');
+      vibrateFailure();
+    }
+
+    async function admitGuest() {
+      if (!currentTicketId || processing) return;
+
+      processing = true;
+      const button = document.getElementById('admitButton');
+      button.disabled = true;
+      button.textContent = 'Checking in…';
+
+      try {
+        const result = await callServer('checkInTicket', currentTicketId);
+        showCheckInResult(result);
+      } catch (error) {
+        showError(error && error.message ? error.message : String(error));
+      } finally {
+        processing = false;
+        button.disabled = false;
+        button.textContent = 'Admit Guest';
+      }
+    }
+
+    function showCheckInResult(result) {
+      resetResult();
+      hideElement('loading');
+      hideElement('scannerBox');
+      showElement('result');
+
+      if (!result || !result.ok) {
+        showError(result && result.message ? result.message : 'The ticket could not be checked in.');
+        return;
+      }
+
+      setText('customerName', result.customerName || '');
+
+      if (result.ticketNumber && result.totalTickets) {
+        setText('ticketDetails', `Ticket ${result.ticketNumber} of ${result.totalTickets}`);
+      }
+
+      setText('ticketId', result.ticketId || currentTicketId);
+
+      if (result.outcome === 'CHECKED_IN') {
+        setResultClass('checked-in');
+        setText('statusIcon', '✓');
+        setText('resultTitle', 'GUEST ADMITTED');
+        setText('checkedInDetails', `Checked in: ${result.checkedInAt}`);
+        hideElement('admitButton');
+        vibrateSuccess();
+        return;
+      }
+
+      if (result.outcome === 'ALREADY_USED') {
+        setResultClass('used');
+        setText('statusIcon', '!');
+        setText('resultTitle', 'ALREADY USED');
+        setText('checkedInDetails', result.checkedInAt ? `Checked in: ${result.checkedInAt}` : '');
+        hideElement('admitButton');
+        vibrateFailure();
+        return;
+      }
+
+      setResultClass('invalid');
+      setText('statusIcon', '✖');
+      setText('resultTitle', 'INVALID TICKET');
+      hideElement('admitButton');
+      vibrateFailure();
+    }
+
+    function scanNextTicket() {
+      currentTicketId = '';
+      document.getElementById('manualTicketId').value = '';
+      hideElement('result');
+      hideElement('loading');
+      showElement('scannerBox');
+      document.getElementById('startButton').style.display = 'block';
+      document.getElementById('scanHint').textContent =
+        'Tap "Start Scanning," then hold the QR code inside the frame. It scans automatically — no need to take a photo.';
+    }
+
+    function showLoading(message) {
+      hideElement('scannerBox');
+      hideElement('result');
+      setText('loadingText', message || 'Please wait…');
+      showElement('loading');
+    }
+
+    function showError(message) {
+      resetResult();
+      hideElement('loading');
+      hideElement('scannerBox');
+      showElement('result');
+      setResultClass('error');
+      setText('statusIcon', '⚠');
+      setText('resultTitle', 'SCANNER ERROR');
+      setText('errorMessage', message);
+      hideElement('admitButton');
+      vibrateFailure();
+    }
+
+    async function callServer(functionName, argument) {
+      const params = new URLSearchParams();
+
+      if (functionName === 'scannerHealthCheck') {
+        params.set('action', 'health');
+      } else if (functionName === 'lookupTicket') {
+        params.set('action', 'lookup');
+        params.set('ticketId', argument || '');
+      } else if (functionName === 'checkInTicket') {
+        params.set('action', 'checkin');
+        params.set('ticketId', argument || '');
+      } else {
+        throw new Error(`Unknown server function: ${functionName}`);
+      }
+
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), SERVER_TIMEOUT_MS);
+
+      try {
+        const response = await fetch(`${SCRIPT_URL}?${params.toString()}`, {
+          method: 'GET',
+          signal: controller.signal
+        });
+
+        if (!response.ok) {
+          throw new Error(`The server returned an error (${response.status}).`);
+        }
+
+        return await response.json();
+      } catch (error) {
+        if (error && error.name === 'AbortError') {
+          throw new Error('The server took too long to respond. Check your connection and try again.');
+        }
+        throw error;
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+
+    function resetResult() {
+      setText('statusIcon', '');
+      setText('resultTitle', '');
+      setText('customerName', '');
+      setText('ticketDetails', '');
+      setText('checkedInDetails', '');
+      setText('ticketId', '');
+      setText('errorMessage', '');
+      document.getElementById('result').className = 'result';
+      showElement('admitButton');
+    }
+
+    function setResultClass(className) { document.getElementById('result').className = `result ${className}`; }
+    function setText(elementId, value) { document.getElementById(elementId).textContent = value || ''; }
+    function showElement(elementId) { document.getElementById(elementId).style.display = 'block'; }
+    function hideElement(elementId) { document.getElementById(elementId).style.display = 'none'; }
+    function vibrateSuccess() { if (navigator.vibrate) navigator.vibrate(120); }
+    function vibrateFailure() { if (navigator.vibrate) navigator.vibrate([180, 100, 180]); }
+  </script>
+</body>
+</html>
